@@ -496,6 +496,8 @@ let state = loadState();
 let currentView = 'home';
 let selectedSubject = null;
 let dashboardTab = 'weakness'; // 'weakness' | 'progress' | 'plan'
+let timePeriod = 0; // 0=today, 1=week, 2=month, 3=total
+let currentMessage = MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
 
 function loadState() {
   try {
@@ -506,12 +508,13 @@ function loadState() {
       SUBJECTS.forEach(s => {
         if (!data.subjects[s.id]) data.subjects[s.id] = { records: [] };
       });
+      if (!data.motivation) data.motivation = [];
       return data;
     }
   } catch(e) {}
   const subjects = {};
   SUBJECTS.forEach(s => { subjects[s.id] = { records: [] }; });
-  return { subjects, created: new Date().toISOString() };
+  return { subjects, motivation: [], created: new Date().toISOString() };
 }
 
 function saveState() {
@@ -566,6 +569,28 @@ function getTotalMinutes(id) {
   recs.forEach(r => { mins += (r.minutes || 0); });
   return mins;
 }
+
+function getMinutesByPeriod(period) {
+  const today = new Date().toISOString().split('T')[0];
+  const now = new Date();
+  const weekAgo = new Date(now); weekAgo.setDate(now.getDate() - now.getDay()); // Sunday start
+  const weekStr = weekAgo.toISOString().split('T')[0];
+  const monthStr = today.slice(0, 7); // YYYY-MM
+
+  let total = 0;
+  SUBJECTS.forEach(s => {
+    (state.subjects[s.id]?.records || []).forEach(r => {
+      if (!r.minutes) return;
+      if (period === 0 && r.date === today) total += r.minutes;
+      else if (period === 1 && r.date >= weekStr) total += r.minutes;
+      else if (period === 2 && r.date.startsWith(monthStr)) total += r.minutes;
+      else if (period === 3) total += r.minutes;
+    });
+  });
+  return total;
+}
+
+const TIME_LABELS = ['今日', '今週', '今月', '累計'];
 
 function formatMinutes(mins) {
   if (mins === 0) return '0分';
@@ -684,6 +709,8 @@ function render() {
   else if (currentView === 'radar') renderRadar(app);
   else if (currentView === 'import') renderImport(app);
   else if (currentView === 'backup') renderBackup(app);
+  else if (currentView === 'timeline') renderTimeline(app);
+  else if (currentView === 'motivation') renderMotivation(app);
 }
 
 function renderHome(app) {
@@ -734,14 +761,43 @@ function renderHome(app) {
 
   // Encouragement
   h += `<div class="encouragement">
-    <p style="font-size:14px; color:var(--pink-700); font-weight:500; line-height:1.6;">${getTodayMessage()}</p>
+    <p style="font-size:14px; color:var(--pink-700); font-weight:500; line-height:1.6;">${currentMessage}</p>
   </div>`;
+
+  // Today's motivation
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayMotiv = state.motivation.find(m => m.date === todayStr);
+  if (todayMotiv) {
+    const emoji = todayMotiv.score >= 80 ? '🔥' : todayMotiv.score >= 60 ? '😊' : todayMotiv.score >= 40 ? '😐' : todayMotiv.score >= 20 ? '😓' : '😢';
+    h += `<div class="card" style="display:flex; align-items:center; justify-content:space-between; padding:12px 16px; cursor:pointer;" onclick="currentView='motivation'; render();">
+      <div style="display:flex; align-items:center; gap:8px;">
+        <span style="font-size:20px;">${emoji}</span>
+        <div>
+          <span style="font-size:13px; font-weight:500; color:var(--text-primary);">今日のモチベ</span>
+          <span style="font-size:11px; color:var(--text-hint); margin-left:6px;">タップで分析 →</span>
+        </div>
+      </div>
+      <span style="font-size:22px; font-weight:700; color:var(--pink-600);">${todayMotiv.score}<span style="font-size:12px; color:var(--text-hint);">点</span></span>
+    </div>`;
+  } else {
+    h += `<div class="card" style="padding:12px 16px;">
+      <p style="font-size:13px; font-weight:500; color:var(--text-primary); margin-bottom:8px;">今日のモチベーションは？</p>
+      <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+        <input id="home-motiv" type="range" min="0" max="100" value="50" style="flex:1; background:none; padding:0; border:none;" oninput="document.getElementById('home-motiv-val').textContent=this.value;">
+        <span id="home-motiv-val" style="font-size:18px; font-weight:700; color:var(--pink-600); width:32px; text-align:right;">50</span>
+      </div>
+      <div style="display:flex; align-items:center; gap:8px;">
+        <input id="home-motiv-comment" type="text" placeholder="ひとこと（任意）" style="flex:1; padding:8px 10px; font-size:12px;">
+        <button onclick="saveMotivation(parseInt(document.getElementById('home-motiv').value), document.getElementById('home-motiv-comment').value); render();" style="background:linear-gradient(135deg, var(--pink-400), var(--purple-400)); color:#fff; border:none; border-radius:16px; padding:6px 14px; font-family:var(--font); font-size:12px; font-weight:500; cursor:pointer; flex-shrink:0;">記録</button>
+      </div>
+    </div>`;
+  }
 
   // Metrics
   h += `<div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; margin-bottom:16px;">
-    <div class="metric-card" style="background:var(--pink-50);">
-      <div style="font-size:11px; color:var(--pink-500); font-weight:500;">累計学習時間</div>
-      <div style="font-size:20px; font-weight:700; color:var(--pink-700);">${formatMinutes(allTotalMinutes)}</div>
+    <div class="metric-card" style="background:var(--pink-50); cursor:pointer; -webkit-tap-highlight-color:transparent;" onclick="timePeriod = (timePeriod + 1) % 4; render();">
+      <div style="font-size:11px; color:var(--pink-500); font-weight:500;">${TIME_LABELS[timePeriod]}の学習時間 <span style="font-size:9px; color:var(--text-hint);">▶ tap</span></div>
+      <div style="font-size:20px; font-weight:700; color:var(--pink-700);">${formatMinutes(getMinutesByPeriod(timePeriod))}</div>
     </div>
     <div class="metric-card" style="background:var(--teal-50);">
       <div style="font-size:11px; color:var(--teal-400); font-weight:500;">平均正答率</div>
@@ -814,7 +870,8 @@ function renderHome(app) {
 
   // Dashboard & Radar buttons
   h += `<div style="display:flex; gap:8px; justify-content:center; margin-bottom:14px;">
-    <button class="btn-secondary" onclick="currentView='dashboard'; render();">弱点分析</button>`;
+    <button class="btn-secondary" onclick="currentView='dashboard'; render();">弱点分析</button>
+    <button class="btn-secondary" onclick="currentView='timeline'; render();">タイムライン</button>`;
   if (subjectsStudied >= 3) {
     h += `<button class="btn-secondary" onclick="currentView='radar'; render();">科目バランス</button>`;
   }
@@ -981,6 +1038,290 @@ function doImport() {
   alert(count + '科目の学習時間を登録しました');
   currentView = 'home';
   render();
+}
+
+function saveMotivation(score, comment) {
+  const todayStr = new Date().toISOString().split('T')[0];
+  const existing = state.motivation.findIndex(m => m.date === todayStr);
+  if (existing >= 0) {
+    state.motivation[existing].score = score;
+    if (comment !== undefined) state.motivation[existing].comment = comment;
+  } else {
+    state.motivation.push({ date: todayStr, score, comment: comment || '' });
+  }
+  state.motivation.sort((a, b) => a.date.localeCompare(b.date));
+  saveState();
+}
+
+function renderMotivation(app) {
+  const mots = state.motivation || [];
+  const todayStr = new Date().toISOString().split('T')[0];
+  const todayMotiv = mots.find(m => m.date === todayStr);
+
+  let h = `<div class="fade-in">`;
+  h += `<button class="btn-back" onclick="currentView='home'; render();">← もどる</button>`;
+  h += `<div style="text-align:center; margin:16px 0 20px;">
+    <p style="font-size:18px; font-weight:700; color:var(--text-primary);">モチベーション分析</p>
+    <p style="font-size:12px; color:var(--text-secondary); margin-top:4px;">気持ちの波を可視化しよう</p>
+  </div>`;
+
+  // Today's input/edit
+  h += `<div class="card" style="padding:14px;">
+    <p style="font-size:13px; font-weight:700; color:var(--text-primary); margin-bottom:8px;">${todayMotiv ? '今日のモチベ（変更可）' : '今日のモチベーションは？'}</p>
+    <div style="display:flex; align-items:center; gap:8px; margin-bottom:8px;">
+      <input id="motiv-slider" type="range" min="0" max="100" value="${todayMotiv ? todayMotiv.score : 50}" style="flex:1; background:none; padding:0; border:none;" oninput="document.getElementById('motiv-val').textContent=this.value;">
+      <span id="motiv-val" style="font-size:22px; font-weight:700; color:var(--pink-600); width:36px; text-align:right;">${todayMotiv ? todayMotiv.score : 50}</span>
+    </div>
+    <div style="display:flex; align-items:center; gap:8px;">
+      <input id="motiv-comment" type="text" placeholder="ひとこと（任意）" value="${todayMotiv && todayMotiv.comment ? todayMotiv.comment : ''}" style="flex:1; padding:8px 10px; font-size:12px;">
+      <button onclick="saveMotivation(parseInt(document.getElementById('motiv-slider').value), document.getElementById('motiv-comment').value); render();" style="background:linear-gradient(135deg, var(--pink-400), var(--purple-400)); color:#fff; border:none; border-radius:16px; padding:8px 16px; font-family:var(--font); font-size:13px; font-weight:500; cursor:pointer; flex-shrink:0;">${todayMotiv ? '更新' : '記録'}</button>
+    </div>
+  </div>`;
+
+  // Stats
+  if (mots.length > 0) {
+    const scores = mots.map(m => m.score);
+    const avg = Math.round(scores.reduce((a, b) => a + b, 0) / scores.length);
+    const max = Math.max(...scores);
+    const min = Math.min(...scores);
+    const recent7 = mots.slice(-7);
+    const avg7 = Math.round(recent7.reduce((s, m) => s + m.score, 0) / recent7.length);
+
+    h += `<div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; margin-top:12px; margin-bottom:12px;">
+      <div class="metric-card" style="background:var(--pink-50);">
+        <div style="font-size:11px; color:var(--pink-500); font-weight:500;">全体平均</div>
+        <div style="font-size:22px; font-weight:700; color:var(--pink-700);">${avg}<span style="font-size:12px;">点</span></div>
+      </div>
+      <div class="metric-card" style="background:var(--purple-50);">
+        <div style="font-size:11px; color:var(--purple-400); font-weight:500;">直近7日平均</div>
+        <div style="font-size:22px; font-weight:700; color:var(--purple-600);">${avg7}<span style="font-size:12px;">点</span></div>
+      </div>
+      <div class="metric-card" style="background:var(--teal-50);">
+        <div style="font-size:11px; color:var(--teal-400); font-weight:500;">最高</div>
+        <div style="font-size:22px; font-weight:700; color:var(--teal-600);">${max}<span style="font-size:12px;">点</span></div>
+      </div>
+      <div class="metric-card" style="background:var(--amber-50);">
+        <div style="font-size:11px; color:var(--amber-400); font-weight:500;">最低</div>
+        <div style="font-size:22px; font-weight:700; color:var(--amber-600);">${min}<span style="font-size:12px;">点</span></div>
+      </div>
+    </div>`;
+
+    // Chart
+    if (mots.length >= 2) {
+      h += `<div class="card" style="padding:12px;">
+        <p style="font-size:13px; font-weight:700; color:var(--text-primary); margin-bottom:8px;">モチベーション推移</p>
+        <div style="position:relative; height:200px;">
+          <canvas id="motiv-chart"></canvas>
+        </div>
+      </div>`;
+    }
+
+    // Correlation with study
+    h += `<div class="card" style="padding:14px;">
+      <p style="font-size:13px; font-weight:700; color:var(--text-primary); margin-bottom:10px;">モチベと学習の関係</p>`;
+
+    const highDays = mots.filter(m => m.score >= 70);
+    const lowDays = mots.filter(m => m.score < 50);
+    let highStudy = 0, highCount = 0, lowStudy = 0, lowCount = 0;
+    highDays.forEach(m => {
+      let dayMins = 0;
+      SUBJECTS.forEach(s => {
+        (state.subjects[s.id]?.records || []).forEach(r => {
+          if (r.date === m.date && r.minutes) dayMins += r.minutes;
+        });
+      });
+      highStudy += dayMins; highCount++;
+    });
+    lowDays.forEach(m => {
+      let dayMins = 0;
+      SUBJECTS.forEach(s => {
+        (state.subjects[s.id]?.records || []).forEach(r => {
+          if (r.date === m.date && r.minutes) dayMins += r.minutes;
+        });
+      });
+      lowStudy += dayMins; lowCount++;
+    });
+    const highAvg = highCount > 0 ? Math.round(highStudy / highCount) : 0;
+    const lowAvg = lowCount > 0 ? Math.round(lowStudy / lowCount) : 0;
+
+    if (highCount > 0 || lowCount > 0) {
+      h += `<div style="display:flex; gap:8px; margin-bottom:8px;">
+        <div style="flex:1; background:var(--teal-50); border-radius:var(--radius-sm); padding:10px; text-align:center;">
+          <div style="font-size:11px; color:var(--teal-400); font-weight:500;">モチベ高い日(70↑)</div>
+          <div style="font-size:16px; font-weight:700; color:var(--teal-600);">${formatMinutes(highAvg)}</div>
+          <div style="font-size:10px; color:var(--text-hint);">${highCount}日間の平均</div>
+        </div>
+        <div style="flex:1; background:var(--pink-50); border-radius:var(--radius-sm); padding:10px; text-align:center;">
+          <div style="font-size:11px; color:var(--pink-500); font-weight:500;">モチベ低い日(50↓)</div>
+          <div style="font-size:16px; font-weight:700; color:var(--pink-700);">${formatMinutes(lowAvg)}</div>
+          <div style="font-size:10px; color:var(--text-hint);">${lowCount}日間の平均</div>
+        </div>
+      </div>`;
+
+      if (highAvg > lowAvg && lowCount > 0) {
+        h += `<p style="font-size:12px; color:var(--text-secondary); line-height:1.5;">モチベが高い日は平均で<strong>${formatMinutes(highAvg - lowAvg)}</strong>多く勉強できてるよ。モチベ管理も大事な戦略!</p>`;
+      } else if (lowAvg > 0) {
+        h += `<p style="font-size:12px; color:var(--text-secondary); line-height:1.5;">モチベが低い日でもちゃんと勉強できてる。えらい!</p>`;
+      }
+    } else {
+      h += `<p style="font-size:12px; color:var(--text-hint);">データが増えると、モチベと学習時間の関係が分析されます</p>`;
+    }
+    h += `</div>`;
+
+    // History
+    h += `<div class="card" style="padding:12px;">
+      <p style="font-size:13px; font-weight:700; color:var(--text-primary); margin-bottom:8px;">記録一覧</p>`;
+    mots.slice().reverse().forEach(m => {
+      const emoji = m.score >= 80 ? '🔥' : m.score >= 60 ? '😊' : m.score >= 40 ? '😐' : m.score >= 20 ? '😓' : '😢';
+      const barColor = m.score >= 80 ? 'var(--teal-400)' : m.score >= 60 ? 'var(--purple-400)' : m.score >= 40 ? 'var(--amber-400)' : 'var(--pink-400)';
+      h += `<div style="padding:6px 0; border-bottom:1px solid var(--border);">
+        <div style="display:flex; align-items:center; gap:8px;">
+          <span style="font-size:14px;">${emoji}</span>
+          <span style="font-size:12px; color:var(--text-secondary); width:70px;">${m.date.slice(5)}</span>
+          <div style="flex:1; height:6px; background:var(--pink-50); border-radius:3px; overflow:hidden;">
+            <div style="height:100%; width:${m.score}%; background:${barColor}; border-radius:3px;"></div>
+          </div>
+          <span style="font-size:13px; font-weight:700; color:var(--text-primary); width:32px; text-align:right;">${m.score}</span>
+        </div>
+        ${m.comment ? `<p style="font-size:11px; color:var(--text-secondary); margin-top:3px; padding-left:30px; line-height:1.4;">${m.comment}</p>` : ''}
+      </div>`;
+    });
+    h += `</div>`;
+  } else {
+    h += `<div style="text-align:center; padding:40px 0;">
+      <p style="font-size:36px; margin-bottom:8px;">💭</p>
+      <p style="font-size:14px; color:var(--text-hint);">まだ記録がありません</p>
+      <p style="font-size:12px; color:var(--text-hint); margin-top:4px;">上のスライダーで今日のモチベを記録しよう</p>
+    </div>`;
+  }
+
+  h += `</div>`;
+  app.innerHTML = h;
+
+  // Draw chart
+  if (mots.length >= 2) {
+    setTimeout(() => {
+      const ctx = document.getElementById('motiv-chart');
+      if (!ctx) return;
+      new Chart(ctx, {
+        type: 'line',
+        data: {
+          labels: mots.map(m => m.date.slice(5)),
+          datasets: [{
+            data: mots.map(m => m.score),
+            borderColor: '#EC407A',
+            backgroundColor: 'rgba(236, 64, 122, 0.1)',
+            fill: true,
+            tension: 0.35,
+            pointBackgroundColor: mots.map(m => m.score >= 70 ? '#26A69A' : m.score >= 40 ? '#AB47BC' : '#EF5350'),
+            pointBorderColor: '#fff',
+            pointBorderWidth: 2,
+            pointRadius: 5,
+            pointHoverRadius: 7,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: false,
+          scales: {
+            y: { min: 0, max: 100, ticks: { callback: v => v, color: '#B8A5B0', font: { size: 11 } }, grid: { color: 'rgba(200,170,190,0.15)' } },
+            x: { ticks: { color: '#B8A5B0', font: { size: 11 } }, grid: { display: false } }
+          },
+          plugins: { legend: { display: false } }
+        }
+      });
+    }, 80);
+  }
+}
+
+function renderTimeline(app) {
+  // Collect all records with subject info
+  const allRecords = [];
+  SUBJECTS.forEach(s => {
+    (state.subjects[s.id]?.records || []).forEach(r => {
+      allRecords.push({ ...r, subjectId: s.id, subjectName: s.name, short: s.short, icon: s.icon });
+    });
+  });
+  allRecords.sort((a, b) => b.date.localeCompare(a.date) || b.id - a.id);
+
+  // Group by date
+  const grouped = {};
+  allRecords.forEach(r => {
+    if (!grouped[r.date]) grouped[r.date] = [];
+    grouped[r.date].push(r);
+  });
+  const dates = Object.keys(grouped).sort((a, b) => b.localeCompare(a));
+
+  let h = `<div class="fade-in">`;
+  h += `<button class="btn-back" onclick="currentView='home'; render();">← もどる</button>`;
+  h += `<div style="text-align:center; margin:16px 0 20px;">
+    <p style="font-size:18px; font-weight:700; color:var(--text-primary);">学習タイムライン</p>
+    <p style="font-size:12px; color:var(--text-secondary); margin-top:4px;">これまでの学習記録を時系列で確認</p>
+  </div>`;
+
+  if (dates.length === 0) {
+    h += `<div style="text-align:center; padding:40px 0;">
+      <p style="font-size:36px; margin-bottom:8px;">📅</p>
+      <p style="font-size:14px; color:var(--text-hint);">まだ記録がありません</p>
+    </div>`;
+  } else {
+    h += `<div style="position:relative; padding-left:20px;">`;
+    // Vertical line
+    h += `<div style="position:absolute; left:8px; top:0; bottom:0; width:2px; background:linear-gradient(to bottom, var(--pink-400), var(--purple-400), var(--teal-400)); border-radius:1px;"></div>`;
+
+    dates.forEach(date => {
+      const recs = grouped[date];
+      const dayMins = recs.reduce((sum, r) => sum + (r.minutes || 0), 0);
+      const dow = ['日','月','火','水','木','金','土'][new Date(date).getDay()];
+
+      // Date header
+      h += `<div style="position:relative; margin-bottom:6px;">
+        <div style="position:absolute; left:-16px; top:4px; width:12px; height:12px; border-radius:50%; background:linear-gradient(135deg, var(--pink-400), var(--purple-400)); border:2px solid #fff; box-shadow:0 1px 3px rgba(0,0,0,0.15);"></div>
+        <div style="display:flex; align-items:baseline; gap:8px; padding:4px 0;">
+          <span style="font-size:14px; font-weight:700; color:var(--text-primary);">${date}</span>
+          <span style="font-size:11px; color:var(--text-hint);">(${dow})</span>
+          ${dayMins > 0 ? `<span style="font-size:11px; font-weight:500; color:var(--purple-600);">${formatMinutes(dayMins)}</span>` : ''}
+        </div>
+      </div>`;
+
+      // Records for this date
+      recs.forEach(r => {
+        const typeInfo = STUDY_TYPES.find(t => t.id === (r.type || 'mondai'));
+        const typeIcon = typeInfo ? typeInfo.icon : '✏️';
+        const typeName = typeInfo ? typeInfo.name : '問題演習';
+        const isMondai = (!r.type || r.type === 'mondai' || r.type === 'kakomonn');
+
+        let detailHtml = '';
+        if (isMondai && r.total) {
+          const pct = Math.round((r.correct / r.total) * 100);
+          detailHtml = `<span style="font-size:13px; font-weight:700; color:${rateColor(pct)};">${pct}%</span>
+            <span style="font-size:11px; color:var(--text-hint);">(${r.correct}/${r.total})</span>`;
+          if (r.minutes) detailHtml += ` <span style="font-size:11px; color:var(--text-hint);">${r.minutes}分</span>`;
+        } else if (r.minutes) {
+          detailHtml = `<span style="font-size:13px; font-weight:500; color:var(--purple-600);">${formatMinutes(r.minutes)}</span>`;
+        }
+
+        h += `<div style="position:relative; margin-left:4px; margin-bottom:8px;">
+          <div style="background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; box-shadow:0 1px 4px rgba(0,0,0,0.04);">
+            <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:${r.memo ? '4px' : '0'};">
+              <div style="display:flex; align-items:center; gap:6px;">
+                <span style="font-size:15px;">${r.icon}</span>
+                <span style="font-size:13px; font-weight:500;">${r.short}</span>
+                <span style="font-size:10px; color:var(--text-hint); background:var(--pink-50); padding:1px 6px; border-radius:6px;">${typeIcon} ${typeName}</span>
+              </div>
+              <div style="display:flex; align-items:center; gap:4px;">
+                ${detailHtml}
+              </div>
+            </div>
+            ${r.memo && r.memo !== '過去分まとめ入力' ? `<p style="font-size:11px; color:var(--text-secondary); line-height:1.4; margin-top:4px;">${r.memo}</p>` : ''}
+          </div>
+        </div>`;
+      });
+    });
+    h += `</div>`;
+  }
+
+  h += `</div>`;
+  app.innerHTML = h;
 }
 
 function renderBackup(app) {
