@@ -684,6 +684,7 @@ function render() {
   else if (currentView === 'detail') renderDetail(app);
   else if (currentView === 'radar') renderRadar(app);
   else if (currentView === 'import') renderImport(app);
+  else if (currentView === 'backup') renderBackup(app);
 }
 
 function renderHome(app) {
@@ -832,6 +833,9 @@ function renderHome(app) {
     <div style="margin-top:12px;">
       <button class="btn-back" onclick="currentView='import'; render();" style="font-size:12px;">過去の学習時間をまとめて入力する</button>
     </div>
+    <div style="margin-top:8px;">
+      <button class="btn-back" onclick="currentView='backup'; render();" style="font-size:12px;">データのバックアップ・復元</button>
+    </div>
   </div>`;
 
   h += `</div>`;
@@ -901,6 +905,61 @@ function doImport() {
   alert(count + '科目の学習時間を登録しました');
   currentView = 'home';
   render();
+}
+
+function renderBackup(app) {
+  let h = `<div class="fade-in">`;
+  h += `<button class="btn-back" onclick="currentView='home'; render();">← もどる</button>`;
+  h += `<div style="text-align:center; margin:16px 0 20px;">
+    <p style="font-size:18px; font-weight:700; color:var(--text-primary);">データのバックアップ・復元</p>
+    <p style="font-size:12px; color:var(--text-secondary); margin-top:4px;">別のブラウザにデータを移行できます</p>
+  </div>`;
+
+  // Export
+  h += `<div class="card">
+    <p style="font-size:14px; font-weight:700; color:var(--text-primary); margin-bottom:8px;">エクスポート（書き出し）</p>
+    <p style="font-size:12px; color:var(--text-secondary); margin-bottom:10px;">ボタンを押すと下にデータが表示されます。全選択してコピーしてください。</p>
+    <button class="btn-primary" style="width:100%; margin-bottom:10px;" onclick="doExport();">データを表示する</button>
+    <textarea id="export-area" rows="4" readonly style="font-size:11px; resize:vertical;" placeholder="ここにデータが表示されます"></textarea>
+  </div>`;
+
+  // Import
+  h += `<div class="card" style="margin-top:12px;">
+    <p style="font-size:14px; font-weight:700; color:var(--text-primary); margin-bottom:8px;">インポート（読み込み）</p>
+    <p style="font-size:12px; color:var(--text-secondary); margin-bottom:10px;">コピーしたデータを下に貼り付けて、読み込みボタンを押してください。</p>
+    <textarea id="import-area" rows="4" style="font-size:11px; resize:vertical;" placeholder="ここにデータを貼り付け"></textarea>
+    <button class="btn-primary" style="width:100%; margin-top:10px; background:linear-gradient(135deg, var(--teal-400), var(--teal-600));" onclick="doRestore();">データを読み込む</button>
+  </div>`;
+
+  h += `</div>`;
+  app.innerHTML = h;
+}
+
+function doExport() {
+  const area = document.getElementById('export-area');
+  area.value = JSON.stringify(state);
+  area.select();
+  area.setSelectionRange(0, area.value.length);
+}
+
+function doRestore() {
+  const raw = document.getElementById('import-area').value.trim();
+  if (!raw) { alert('データを貼り付けてください'); return; }
+  try {
+    const data = JSON.parse(raw);
+    if (!data.subjects) { alert('正しいデータ形式ではありません'); return; }
+    if (!confirm('現在のデータを上書きします。よろしいですか？')) return;
+    SUBJECTS.forEach(s => {
+      if (!data.subjects[s.id]) data.subjects[s.id] = { records: [] };
+    });
+    state = data;
+    saveState();
+    alert('データを読み込みました');
+    currentView = 'home';
+    render();
+  } catch(e) {
+    alert('データの形式が正しくありません。コピーし直してください。');
+  }
 }
 
 function renderDashboard(app) {
