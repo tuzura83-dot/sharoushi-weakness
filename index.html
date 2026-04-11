@@ -567,6 +567,15 @@ function getTotalMinutes(id) {
   return mins;
 }
 
+function formatMinutes(mins) {
+  if (mins === 0) return '0分';
+  const h = Math.floor(mins / 60);
+  const m = mins % 60;
+  if (h === 0) return m + '分';
+  if (m === 0) return h + '時間';
+  return h + '時間' + m + '分';
+}
+
 function getLastDate(id) {
   const recs = state.subjects[id]?.records || [];
   if (recs.length === 0) return null;
@@ -693,6 +702,7 @@ function renderHome(app) {
     if (r !== null) { avgRate += r; rateCount++; }
   });
   avgRate = rateCount > 0 ? Math.round(avgRate / rateCount) : 0;
+  const allTotalMinutes = SUBJECTS.reduce((sum, s) => sum + getTotalMinutes(s.id), 0);
 
   // Top 3 weaknesses
   const ranking = getWeaknessRanking();
@@ -728,18 +738,22 @@ function renderHome(app) {
   </div>`;
 
   // Metrics
-  h += `<div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin-bottom:16px;">
+  h += `<div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; margin-bottom:16px;">
     <div class="metric-card" style="background:var(--pink-50);">
-      <div style="font-size:11px; color:var(--pink-500); font-weight:500;">記録回数</div>
-      <div style="font-size:24px; font-weight:700; color:var(--pink-700);">${totalRecords}</div>
-    </div>
-    <div class="metric-card" style="background:var(--purple-50);">
-      <div style="font-size:11px; color:var(--purple-400); font-weight:500;">学習済み</div>
-      <div style="font-size:24px; font-weight:700; color:var(--purple-600);">${subjectsStudied}<span style="font-size:14px;">/10</span></div>
+      <div style="font-size:11px; color:var(--pink-500); font-weight:500;">累計学習時間</div>
+      <div style="font-size:20px; font-weight:700; color:var(--pink-700);">${formatMinutes(allTotalMinutes)}</div>
     </div>
     <div class="metric-card" style="background:var(--teal-50);">
       <div style="font-size:11px; color:var(--teal-400); font-weight:500;">平均正答率</div>
       <div style="font-size:24px; font-weight:700; color:var(--teal-600);">${avgRate}<span style="font-size:14px;">%</span></div>
+    </div>
+    <div class="metric-card" style="background:var(--purple-50);">
+      <div style="font-size:11px; color:var(--purple-400); font-weight:500;">記録回数</div>
+      <div style="font-size:24px; font-weight:700; color:var(--purple-700);">${totalRecords}</div>
+    </div>
+    <div class="metric-card" style="background:var(--amber-50);">
+      <div style="font-size:11px; color:var(--amber-400); font-weight:500;">学習済み</div>
+      <div style="font-size:24px; font-weight:700; color:var(--amber-600);">${subjectsStudied}<span style="font-size:14px;">/${SUBJECTS.length}</span></div>
     </div>
   </div>`;
 
@@ -808,7 +822,7 @@ function renderHome(app) {
       <div class="progress-bar">
         ${rate !== null ? `<div class="progress-fill" style="width:${rate}%; background:${rateGradient(rate)};"></div>` : ''}
       </div>
-      ${recs > 0 ? `<div style="font-size:11px; color:var(--text-hint); margin-top:4px;">記録 ${recs}回${getTotalMinutes(s.id) > 0 ? '｜学習 ' + getTotalMinutes(s.id) + '分' : ''}${last ? '｜最終 ' + last : ''}</div>` : ''}
+      ${recs > 0 ? `<div style="font-size:11px; color:var(--text-hint); margin-top:4px;">記録 ${recs}回${getTotalMinutes(s.id) > 0 ? '｜学習 ' + formatMinutes(getTotalMinutes(s.id)) : ''}${last ? '｜最終 ' + last : ''}</div>` : ''}
     </div>`;
   });
 
