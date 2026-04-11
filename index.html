@@ -592,8 +592,7 @@ function daysUntilExam() {
 }
 
 function getTodayMessage() {
-  const dayOfYear = Math.floor((new Date() - new Date(new Date().getFullYear(), 0, 0)) / 86400000);
-  return MESSAGES[dayOfYear % MESSAGES.length];
+  return MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
 }
 
 function rateColor(rate) {
