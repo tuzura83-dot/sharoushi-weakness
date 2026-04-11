@@ -375,6 +375,14 @@ const SUBJECTS = [
   { id: 'kounen', name: '厚生年金保険法', short: '厚年', icon: '🏛️', color: 'amber' },
   { id: 'ippan_rou', name: '労務管理その他の労働に関する一般常識', short: '労一', icon: '📚', color: 'pink' },
   { id: 'ippan_sha', name: '社会保険に関する一般常識', short: '社一', icon: '📖', color: 'purple' },
+  { id: 'hanrei', name: '判例', short: '判例', icon: '⚖️', color: 'teal' },
+];
+
+const STUDY_TYPES = [
+  { id: 'mondai', name: '問題演習', icon: '✏️' },
+  { id: 'text', name: 'テキスト読み', icon: '📖' },
+  { id: 'joumon', name: '条文暗記（選択対策）', icon: '📜' },
+  { id: 'kakomonn', name: '過去問', icon: '📝' },
 ];
 
 const EXAM_DATE = new Date('2026-08-23T00:00:00');
@@ -492,7 +500,14 @@ let dashboardTab = 'weakness'; // 'weakness' | 'progress' | 'plan'
 function loadState() {
   try {
     const raw = localStorage.getItem(STORAGE_KEY);
-    if (raw) return JSON.parse(raw);
+    if (raw) {
+      const data = JSON.parse(raw);
+      // Ensure all subjects exist (handles newly added subjects)
+      SUBJECTS.forEach(s => {
+        if (!data.subjects[s.id]) data.subjects[s.id] = { records: [] };
+      });
+      return data;
+    }
   } catch(e) {}
   const subjects = {};
   SUBJECTS.forEach(s => { subjects[s.id] = { records: [] }; });
@@ -503,8 +518,12 @@ function saveState() {
   try { localStorage.setItem(STORAGE_KEY, JSON.stringify(state)); } catch(e) {}
 }
 
+function isMondaiRecord(r) {
+  return (!r.type || r.type === 'mondai' || r.type === 'kakomonn');
+}
+
 function getRate(id) {
-  const recs = state.subjects[id]?.records || [];
+  const recs = (state.subjects[id]?.records || []).filter(isMondaiRecord);
   if (recs.length === 0) return null;
   let correct = 0, total = 0;
   recs.forEach(r => { correct += r.correct; total += r.total; });
@@ -512,7 +531,7 @@ function getRate(id) {
 }
 
 function getRecentRate(id, n) {
-  const recs = state.subjects[id]?.records || [];
+  const recs = (state.subjects[id]?.records || []).filter(isMondaiRecord);
   if (recs.length === 0) return null;
   const recent = recs.slice(-n);
   let correct = 0, total = 0;
@@ -521,7 +540,7 @@ function getRecentRate(id, n) {
 }
 
 function getTrend(id) {
-  const recs = state.subjects[id]?.records || [];
+  const recs = (state.subjects[id]?.records || []).filter(isMondaiRecord);
   if (recs.length < 2) return null;
   const half = Math.floor(recs.length / 2);
   const first = recs.slice(0, half);
@@ -535,10 +554,17 @@ function getTrend(id) {
 }
 
 function getWrongCount(id) {
-  const recs = state.subjects[id]?.records || [];
+  const recs = (state.subjects[id]?.records || []).filter(isMondaiRecord);
   let wrong = 0;
   recs.forEach(r => { wrong += (r.total - r.correct); });
   return wrong;
+}
+
+function getTotalMinutes(id) {
+  const recs = (state.subjects[id]?.records || []).filter(r => !isMondaiRecord(r));
+  let mins = 0;
+  recs.forEach(r => { mins += (r.minutes || 0); });
+  return mins;
 }
 
 function getLastDate(id) {
@@ -781,7 +807,7 @@ function renderHome(app) {
       <div class="progress-bar">
         ${rate !== null ? `<div class="progress-fill" style="width:${rate}%; background:${rateGradient(rate)};"></div>` : ''}
       </div>
-      ${recs > 0 ? `<div style="font-size:11px; color:var(--text-hint); margin-top:4px;">記録 ${recs}回${last ? '｜最終 ' + last : ''}</div>` : ''}
+      ${recs > 0 ? `<div style="font-size:11px; color:var(--text-hint); margin-top:4px;">記録 ${recs}回${getTotalMinutes(s.id) > 0 ? '｜学習 ' + getTotalMinutes(s.id) + '分' : ''}${last ? '｜最終 ' + last : ''}</div>` : ''}
     </div>`;
   });
 
@@ -1135,14 +1161,28 @@ function renderAdd(app) {
         ${SUBJECTS.map(s => `<option value="${s.id}" ${s.id === preselect ? 'selected' : ''}>${s.icon} ${s.name}</option>`).join('')}
       </select>
     </div>
-    <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;">
-      <div>
-        <label>正答数</label>
-        <input id="add-correct" type="number" min="0" value="0" inputmode="numeric">
+    <div style="margin-bottom:14px;">
+      <label>学習タイプ</label>
+      <select id="add-type" onchange="toggleAddFields();">
+        ${STUDY_TYPES.map(t => `<option value="${t.id}">${t.icon} ${t.name}</option>`).join('')}
+      </select>
+    </div>
+    <div id="fields-mondai">
+      <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;">
+        <div>
+          <label>正答数</label>
+          <input id="add-correct" type="number" min="0" value="0" inputmode="numeric">
+        </div>
+        <div>
+          <label>問題数</label>
+          <input id="add-total" type="number" min="1" value="10" inputmode="numeric">
+        </div>
       </div>
-      <div>
-        <label>問題数</label>
-        <input id="add-total" type="number" min="1" value="10" inputmode="numeric">
+    </div>
+    <div id="fields-other" style="display:none;">
+      <div style="margin-bottom:14px;">
+        <label>学習時間（分）</label>
+        <input id="add-minutes" type="number" min="1" value="30" inputmode="numeric">
       </div>
     </div>
     <div style="margin-bottom:14px;">
@@ -1162,18 +1202,38 @@ function renderAdd(app) {
   app.innerHTML = h;
 }
 
+function toggleAddFields() {
+  const type = document.getElementById('add-type').value;
+  const isMondai = (type === 'mondai' || type === 'kakomonn');
+  document.getElementById('fields-mondai').style.display = isMondai ? '' : 'none';
+  document.getElementById('fields-other').style.display = isMondai ? 'none' : '';
+}
+
 function doAdd() {
   const subject = document.getElementById('add-subject').value;
-  const correct = parseInt(document.getElementById('add-correct').value) || 0;
-  const total = parseInt(document.getElementById('add-total').value) || 1;
+  const studyType = document.getElementById('add-type').value;
   const date = document.getElementById('add-date').value;
   const memo = document.getElementById('add-memo').value;
+  const isMondai = (studyType === 'mondai' || studyType === 'kakomonn');
 
-  if (correct > total) { alert('正答数が問題数を超えています'); return; }
-  if (total <= 0) { alert('問題数は1以上にしてください'); return; }
   if (!date) { alert('日付を入力してください'); return; }
 
-  state.subjects[subject].records.push({ correct, total, date, memo, id: Date.now() });
+  const record = { date, memo, id: Date.now(), type: studyType };
+
+  if (isMondai) {
+    const correct = parseInt(document.getElementById('add-correct').value) || 0;
+    const total = parseInt(document.getElementById('add-total').value) || 1;
+    if (correct > total) { alert('正答数が問題数を超えています'); return; }
+    if (total <= 0) { alert('問題数は1以上にしてください'); return; }
+    record.correct = correct;
+    record.total = total;
+  } else {
+    const minutes = parseInt(document.getElementById('add-minutes').value) || 1;
+    if (minutes <= 0) { alert('学習時間は1分以上にしてください'); return; }
+    record.minutes = minutes;
+  }
+
+  state.subjects[subject].records.push(record);
   state.subjects[subject].records.sort((a, b) => a.date.localeCompare(b.date));
   saveState();
   selectedSubject = null;
@@ -1252,15 +1312,24 @@ function renderDetail(app) {
     h += `<div style="margin-top:12px;">
       <p style="font-size:13px; font-weight:700; color:var(--text-primary); margin-bottom:8px;">記録一覧</p>`;
     recs.slice().reverse().forEach(r => {
-      const pct = Math.round((r.correct / r.total) * 100);
+      const isMondai = (!r.type || r.type === 'mondai' || r.type === 'kakomonn');
+      const typeInfo = STUDY_TYPES.find(t => t.id === (r.type || 'mondai'));
+      const typeLabel = typeInfo ? typeInfo.icon : '';
+      let detailHtml = '';
+      if (isMondai) {
+        const pct = Math.round((r.correct / r.total) * 100);
+        detailHtml = `<span style="font-size:12px; color:var(--text-secondary);">${r.correct}/${r.total}</span>
+          <span style="font-size:14px; font-weight:700; color:${rateColor(pct)};">${pct}%</span>`;
+      } else {
+        detailHtml = `<span style="font-size:13px; font-weight:500; color:var(--purple-600);">${r.minutes}分</span>`;
+      }
       h += `<div class="record-item">
-        <div>
-          <span style="font-size:13px; color:var(--text-secondary);">${r.date}</span>
-          ${r.memo ? `<span style="font-size:11px; color:var(--text-hint); margin-left:6px;">${r.memo}</span>` : ''}
+        <div style="min-width:0;">
+          <span style="font-size:13px; color:var(--text-secondary);">${typeLabel} ${r.date}</span>
+          ${r.memo ? `<div style="font-size:11px; color:var(--text-hint); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.memo}</div>` : ''}
         </div>
-        <div style="display:flex; align-items:center; gap:8px;">
-          <span style="font-size:12px; color:var(--text-secondary);">${r.correct}/${r.total}</span>
-          <span style="font-size:14px; font-weight:700; color:${rateColor(pct)};">${pct}%</span>
+        <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
+          ${detailHtml}
           <button class="delete-btn" onclick="deleteRecord('${sid}', ${r.id}); event.stopPropagation();">×</button>
         </div>
       </div>`;
