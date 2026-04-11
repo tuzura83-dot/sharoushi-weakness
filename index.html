@@ -561,7 +561,7 @@ function getWrongCount(id) {
 }
 
 function getTotalMinutes(id) {
-  const recs = (state.subjects[id]?.records || []).filter(r => !isMondaiRecord(r));
+  const recs = state.subjects[id]?.records || [];
   let mins = 0;
   recs.forEach(r => { mins += (r.minutes || 0); });
   return mins;
@@ -674,6 +674,7 @@ function render() {
   else if (currentView === 'add') renderAdd(app);
   else if (currentView === 'detail') renderDetail(app);
   else if (currentView === 'radar') renderRadar(app);
+  else if (currentView === 'import') renderImport(app);
 }
 
 function renderHome(app) {
@@ -814,10 +815,78 @@ function renderHome(app) {
   // Add button
   h += `<div style="text-align:center; margin-top:20px;">
     <button class="btn-primary" onclick="currentView='add'; render();">学習を記録する</button>
+    <div style="margin-top:12px;">
+      <button class="btn-back" onclick="currentView='import'; render();" style="font-size:12px;">過去の学習時間をまとめて入力する</button>
+    </div>
   </div>`;
 
   h += `</div>`;
   app.innerHTML = h;
+}
+
+function renderImport(app) {
+  let h = `<div class="fade-in">`;
+  h += `<button class="btn-back" onclick="currentView='home'; render();">← もどる</button>`;
+  h += `<div style="text-align:center; margin:16px 0 20px;">
+    <p style="font-size:18px; font-weight:700; color:var(--text-primary);">過去の学習時間を入力</p>
+    <p style="font-size:12px; color:var(--text-secondary); margin-top:4px;">科目ごとに累計時間をまとめて登録できます</p>
+  </div>`;
+
+  h += `<div class="card">
+    <div style="margin-bottom:10px;">
+      <label>登録日（まとめて記録する日付）</label>
+      <input id="import-date" type="date" value="${new Date().toISOString().split('T')[0]}">
+    </div>
+  </div>`;
+
+  h += `<div class="card" style="padding:12px;">
+    <p style="font-size:13px; font-weight:700; color:var(--text-primary); margin-bottom:10px;">科目ごとの学習時間</p>
+    <p style="font-size:11px; color:var(--text-hint); margin-bottom:12px;">入力のある科目だけ記録されます</p>`;
+
+  SUBJECTS.forEach(s => {
+    h += `<div style="display:flex; align-items:center; gap:6px; margin-bottom:8px;">
+      <span style="font-size:14px; width:20px; text-align:center;">${s.icon}</span>
+      <span style="font-size:13px; font-weight:500; width:36px; color:var(--text-secondary);">${s.short}</span>
+      <input id="import-h-${s.id}" type="number" min="0" placeholder="0" inputmode="numeric" style="width:52px; flex:none; padding:8px 6px; text-align:center;">
+      <span style="font-size:12px; color:var(--text-hint);">時間</span>
+      <input id="import-m-${s.id}" type="number" min="0" max="59" placeholder="0" inputmode="numeric" style="width:52px; flex:none; padding:8px 6px; text-align:center;">
+      <span style="font-size:12px; color:var(--text-hint);">分</span>
+    </div>`;
+  });
+
+  h += `</div>`;
+
+  h += `<div style="text-align:center; margin-top:16px;">
+    <button class="btn-primary" onclick="doImport();">まとめて登録する</button>
+  </div>`;
+  h += `</div>`;
+  app.innerHTML = h;
+}
+
+function doImport() {
+  const studyType = 'text';
+  const date = document.getElementById('import-date').value;
+  if (!date) { alert('日付を入力してください'); return; }
+
+  let count = 0;
+  SUBJECTS.forEach(s => {
+    const hours = parseInt(document.getElementById('import-h-' + s.id).value) || 0;
+    const mins = parseInt(document.getElementById('import-m-' + s.id).value) || 0;
+    const val = hours * 60 + mins;
+    if (val > 0) {
+      const record = { date, memo: '過去分まとめ入力', id: Date.now() + count, type: studyType, minutes: val };
+      state.subjects[s.id].records.push(record);
+      state.subjects[s.id].records.sort((a, b) => a.date.localeCompare(b.date));
+      count++;
+    }
+  });
+
+  if (count === 0) { alert('1科目以上の時間を入力してください'); return; }
+
+  saveState();
+  alert(count + '科目の学習時間を登録しました');
+  currentView = 'home';
+  render();
 }
 
 function renderDashboard(app) {
@@ -1179,11 +1248,9 @@ function renderAdd(app) {
         </div>
       </div>
     </div>
-    <div id="fields-other" style="display:none;">
-      <div style="margin-bottom:14px;">
-        <label>学習時間（分）</label>
-        <input id="add-minutes" type="number" min="1" value="30" inputmode="numeric">
-      </div>
+    <div style="margin-bottom:14px;">
+      <label id="add-minutes-label">学習時間（分・任意）</label>
+      <input id="add-minutes" type="number" min="1" placeholder="例: 30" inputmode="numeric">
     </div>
     <div style="margin-bottom:14px;">
       <label>日付</label>
@@ -1206,7 +1273,11 @@ function toggleAddFields() {
   const type = document.getElementById('add-type').value;
   const isMondai = (type === 'mondai' || type === 'kakomonn');
   document.getElementById('fields-mondai').style.display = isMondai ? '' : 'none';
-  document.getElementById('fields-other').style.display = isMondai ? 'none' : '';
+  document.getElementById('add-minutes-label').textContent = isMondai ? '学習時間（分・任意）' : '学習時間（分）';
+  document.getElementById('add-minutes').placeholder = isMondai ? '例: 30' : '';
+  if (!isMondai && !document.getElementById('add-minutes').value) {
+    document.getElementById('add-minutes').value = '30';
+  }
 }
 
 function doAdd() {
@@ -1218,6 +1289,8 @@ function doAdd() {
 
   if (!date) { alert('日付を入力してください'); return; }
 
+  const minutesVal = document.getElementById('add-minutes').value;
+  const minutes = minutesVal ? parseInt(minutesVal) : 0;
   const record = { date, memo, id: Date.now(), type: studyType };
 
   if (isMondai) {
@@ -1227,9 +1300,9 @@ function doAdd() {
     if (total <= 0) { alert('問題数は1以上にしてください'); return; }
     record.correct = correct;
     record.total = total;
+    if (minutes > 0) record.minutes = minutes;
   } else {
-    const minutes = parseInt(document.getElementById('add-minutes').value) || 1;
-    if (minutes <= 0) { alert('学習時間は1分以上にしてください'); return; }
+    if (!minutes || minutes <= 0) { alert('学習時間を入力してください'); return; }
     record.minutes = minutes;
   }
 
@@ -1318,7 +1391,8 @@ function renderDetail(app) {
       let detailHtml = '';
       if (isMondai) {
         const pct = Math.round((r.correct / r.total) * 100);
-        detailHtml = `<span style="font-size:12px; color:var(--text-secondary);">${r.correct}/${r.total}</span>
+        detailHtml = `${r.minutes ? `<span style="font-size:11px; color:var(--text-hint);">${r.minutes}分</span>` : ''}
+          <span style="font-size:12px; color:var(--text-secondary);">${r.correct}/${r.total}</span>
           <span style="font-size:14px; font-weight:700; color:${rateColor(pct)};">${pct}%</span>`;
       } else {
         detailHtml = `<span style="font-size:13px; font-weight:500; color:var(--purple-600);">${r.minutes}分</span>`;
