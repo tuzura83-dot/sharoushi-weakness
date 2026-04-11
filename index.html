@@ -1074,8 +1074,7 @@ function deleteMotivation(id) {
 
 function cycleTimePeriod() {
   timePeriod = (timePeriod + 1) % 4;
-  document.getElementById('time-label').textContent = TIME_LABELS[timePeriod];
-  document.getElementById('time-value').textContent = formatMinutes(getMinutesByPeriod(timePeriod));
+  render();
 }
 
 function saveMotivation(score, comment) {
