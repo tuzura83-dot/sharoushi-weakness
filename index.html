@@ -819,10 +819,10 @@ function renderHome(app) {
 
   // Metrics
   h += `<div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; margin-bottom:16px;">
-    <div id="time-metric" class="metric-card" style="background:var(--pink-50); cursor:pointer; -webkit-tap-highlight-color:transparent;" onclick="cycleTimePeriod();">
+    <button id="time-metric" class="metric-card" style="background:var(--pink-50); cursor:pointer; -webkit-tap-highlight-color:transparent; border:none; width:100%; font-family:var(--font);" onclick="cycleTimePeriod();">
       <div style="font-size:11px; color:var(--pink-500); font-weight:500;"><span id="time-label">${TIME_LABELS[timePeriod]}</span>の学習時間 <span style="font-size:9px; color:var(--text-hint);">▶ tap</span></div>
       <div id="time-value" style="font-size:20px; font-weight:700; color:var(--pink-700);">${formatMinutes(getMinutesByPeriod(timePeriod))}</div>
-    </div>
+    </button>
     <div class="metric-card" style="background:var(--teal-50);">
       <div style="font-size:11px; color:var(--teal-400); font-weight:500;">平均正答率</div>
       <div style="font-size:24px; font-weight:700; color:var(--teal-600);">${avgRate}<span style="font-size:14px;">%</span></div>
