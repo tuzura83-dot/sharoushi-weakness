@@ -758,6 +758,39 @@ function renderHome(app) {
     </div>
   </div>`;
 
+  // Activity chart - study time per subject
+  const subjectTimes = SUBJECTS.map(s => ({ ...s, mins: getTotalMinutes(s.id) })).filter(s => s.mins > 0);
+  if (subjectTimes.length > 0) {
+    h += `<div class="card" style="padding:16px;">
+      <p style="font-size:14px; font-weight:700; color:var(--text-primary); margin-bottom:12px;">科目別アクティビティ</p>
+      <div style="display:flex; align-items:center; gap:16px;">
+        <div style="position:relative; width:140px; height:140px; flex-shrink:0;">
+          <canvas id="activity-chart"></canvas>
+          <div style="position:absolute; top:50%; left:50%; transform:translate(-50%,-50%); text-align:center;">
+            <div style="font-size:18px; font-weight:700; color:var(--pink-600);">${formatMinutes(allTotalMinutes)}</div>
+            <div style="font-size:10px; color:var(--text-hint);">合計</div>
+          </div>
+        </div>
+        <div style="flex:1; min-width:0;">`;
+    const actColors = [
+      '#EC407A', '#AB47BC', '#26A69A', '#FFA726', '#F48FB1',
+      '#CE93D8', '#80CBC4', '#FFD54F', '#FF7043', '#7E57C2', '#42A5F5'
+    ];
+    subjectTimes.sort((a, b) => b.mins - a.mins);
+    subjectTimes.forEach((s, i) => {
+      const pct = Math.round((s.mins / allTotalMinutes) * 100);
+      h += `<div style="display:flex; align-items:center; gap:6px; margin-bottom:5px;">
+        <span style="display:inline-block; width:8px; height:8px; border-radius:50%; background:${actColors[i % actColors.length]}; flex-shrink:0;"></span>
+        <span style="font-size:11px; width:28px; text-align:right; color:var(--text-secondary); font-weight:500;">${s.short}</span>
+        <div style="flex:1; height:6px; background:var(--pink-50); border-radius:3px; overflow:hidden;">
+          <div style="height:100%; width:${pct}%; border-radius:3px; background:${actColors[i % actColors.length]}; transition:width 0.4s;"></div>
+        </div>
+        <span style="font-size:10px; color:var(--text-hint); width:40px; text-align:right;">${formatMinutes(s.mins)}</span>
+      </div>`;
+    });
+    h += `</div></div></div>`;
+  }
+
   // Weakness alert (top weaknesses)
   if (topWeak.length > 0) {
     h += `<div class="card" style="border-left:4px solid var(--pink-400); cursor:pointer;" onclick="currentView='dashboard'; dashboardTab='weakness'; render();">
@@ -840,6 +873,50 @@ function renderHome(app) {
 
   h += `</div>`;
   app.innerHTML = h;
+
+  // Draw activity doughnut chart
+  if (subjectTimes.length > 0) {
+    setTimeout(() => {
+      const ctx = document.getElementById('activity-chart');
+      if (!ctx) return;
+      const actColors = [
+        '#EC407A', '#AB47BC', '#26A69A', '#FFA726', '#F48FB1',
+        '#CE93D8', '#80CBC4', '#FFD54F', '#FF7043', '#7E57C2', '#42A5F5'
+      ];
+      new Chart(ctx, {
+        type: 'doughnut',
+        data: {
+          labels: subjectTimes.map(s => s.short),
+          datasets: [{
+            data: subjectTimes.map(s => s.mins),
+            backgroundColor: subjectTimes.map((_, i) => actColors[i % actColors.length]),
+            borderWidth: 2,
+            borderColor: '#fff',
+            borderRadius: 4,
+            spacing: 2,
+          }]
+        },
+        options: {
+          responsive: true, maintainAspectRatio: true,
+          cutout: '65%',
+          plugins: {
+            legend: { display: false },
+            tooltip: {
+              callbacks: {
+                label: function(ctx) {
+                  return ctx.label + ': ' + formatMinutes(ctx.raw);
+                }
+              }
+            }
+          },
+          animation: {
+            animateRotate: true,
+            duration: 800,
+          }
+        }
+      });
+    }, 80);
+  }
 }
 
 function renderImport(app) {
@@ -1407,14 +1484,21 @@ function renderDetail(app) {
   </div>`;
 
   // Detail metrics
+  const subjectMinutes = getTotalMinutes(sid);
   if (recs.length > 0) {
     let totalQ = 0, totalC = 0;
-    recs.forEach(r => { totalQ += r.total; totalC += r.correct; });
-    h += `<div style="display:grid; grid-template-columns:repeat(3, minmax(0,1fr)); gap:8px; margin-bottom:12px;">
+    recs.forEach(r => { if (isMondaiRecord(r)) { totalQ += r.total; totalC += r.correct; } });
+    h += `<div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; margin-bottom:8px;">
+      <div class="metric-card" style="background:var(--amber-50);">
+        <div style="font-size:11px; color:var(--amber-400); font-weight:500;">累計学習時間</div>
+        <div style="font-size:18px; font-weight:700; color:var(--amber-600);">${formatMinutes(subjectMinutes)}</div>
+      </div>
       <div class="metric-card" style="background:var(--pink-50);">
         <div style="font-size:11px; color:var(--pink-500); font-weight:500;">間違い数</div>
         <div style="font-size:20px; font-weight:700; color:var(--pink-700);">${wrongCount}</div>
       </div>
+    </div>
+    <div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; margin-bottom:12px;">
       <div class="metric-card" style="background:var(--purple-50);">
         <div style="font-size:11px; color:var(--purple-400); font-weight:500;">直近3回</div>
         <div style="font-size:20px; font-weight:700; color:${rateColor(recentRate)};">${recentRate !== null ? recentRate + '%' : '--'}</div>
