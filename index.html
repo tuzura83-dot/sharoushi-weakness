@@ -519,6 +519,7 @@ const MESSAGES = [
 let state = loadState();
 let currentView = 'home';
 let selectedSubject = null;
+let editingRecord = null; // { subjectId, recordId }
 let dashboardTab = 'weakness'; // 'weakness' | 'progress' | 'plan'
 let timePeriod = 0; // 0=today, 1=week, 2=month, 3=total
 let currentMessage = MESSAGES[Math.floor(Math.random() * MESSAGES.length)];
@@ -819,10 +820,10 @@ function renderHome(app) {
 
   // Metrics
   h += `<div style="display:grid; grid-template-columns:repeat(2, minmax(0,1fr)); gap:8px; margin-bottom:16px;">
-    <button id="time-metric" class="metric-card" style="background:var(--pink-50); cursor:pointer; -webkit-tap-highlight-color:transparent; border:none; width:100%; font-family:var(--font);" onclick="cycleTimePeriod();">
-      <div style="font-size:11px; color:var(--pink-500); font-weight:500;"><span id="time-label">${TIME_LABELS[timePeriod]}</span>の学習時間 <span style="font-size:9px; color:var(--text-hint);">▶ tap</span></div>
-      <div id="time-value" style="font-size:20px; font-weight:700; color:var(--pink-700);">${formatMinutes(getMinutesByPeriod(timePeriod))}</div>
-    </button>
+    <div class="metric-card" style="background:var(--pink-50); cursor:pointer; -webkit-tap-highlight-color:transparent;" onclick="timePeriod=(timePeriod+1)%4; render();">
+      <div style="font-size:11px; color:var(--pink-500); font-weight:500;">${TIME_LABELS[timePeriod]}の学習時間 <span style="font-size:9px; color:var(--text-hint);">▶</span></div>
+      <div style="font-size:20px; font-weight:700; color:var(--pink-700);">${getMinutesByPeriod(timePeriod) > 0 ? formatMinutes(getMinutesByPeriod(timePeriod)) : '−'}</div>
+    </div>
     <div class="metric-card" style="background:var(--teal-50);">
       <div style="font-size:11px; color:var(--teal-400); font-weight:500;">平均正答率</div>
       <div style="font-size:24px; font-weight:700; color:var(--teal-600);">${avgRate}<span style="font-size:14px;">%</span></div>
@@ -1349,7 +1350,7 @@ function renderTimeline(app) {
         }
 
         h += `<div style="position:relative; margin-left:4px; margin-bottom:8px;">
-          <div style="background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; box-shadow:0 1px 4px rgba(0,0,0,0.04);">
+          <div style="background:var(--card-bg); border:1px solid var(--border); border-radius:var(--radius-sm); padding:10px 12px; box-shadow:0 1px 4px rgba(0,0,0,0.04); cursor:pointer;" onclick="editingRecord={subjectId:'${r.subjectId}', recordId:${r.id}}; currentView='add'; render();">
             <div style="display:flex; align-items:center; justify-content:space-between; margin-bottom:${r.memo ? '4px' : '0'};">
               <div style="display:flex; align-items:center; gap:6px;">
                 <span style="font-size:15px;">${r.icon}</span>
@@ -1358,6 +1359,7 @@ function renderTimeline(app) {
               </div>
               <div style="display:flex; align-items:center; gap:4px;">
                 ${detailHtml}
+                <span style="font-size:10px; color:var(--text-hint); margin-left:2px;">›</span>
               </div>
             </div>
             ${r.memo && r.memo !== '過去分まとめ入力' ? `<p style="font-size:11px; color:var(--text-secondary); line-height:1.4; margin-top:4px;">${r.memo}</p>` : ''}
@@ -1753,12 +1755,22 @@ function renderPlanTab(ranking) {
 }
 
 function renderAdd(app) {
-  const preselect = selectedSubject || SUBJECTS[0].id;
+  // If editing, load the existing record
+  let existing = null;
+  if (editingRecord) {
+    const recs = state.subjects[editingRecord.subjectId]?.records || [];
+    existing = recs.find(r => r.id === editingRecord.recordId);
+  }
+  const isEdit = !!existing;
+  const preselect = isEdit ? editingRecord.subjectId : (selectedSubject || SUBJECTS[0].id);
+  const preType = isEdit ? (existing.type || 'mondai') : 'mondai';
+  const preIsMondai = (preType === 'mondai' || preType === 'kakomonn');
+
   let h = `<div class="fade-in">`;
-  h += `<button class="btn-back" onclick="currentView='home'; render();">← もどる</button>`;
+  h += `<button class="btn-back" onclick="editingRecord=null; currentView='${isEdit ? 'detail' : 'home'}'; render();">← もどる</button>`;
   h += `<div style="text-align:center; margin:16px 0 20px;">
-    <p style="font-size:18px; font-weight:700; color:var(--text-primary);">学習を記録する</p>
-    <p style="font-size:12px; color:var(--text-secondary); margin-top:4px;">今日もおつかれさま</p>
+    <p style="font-size:18px; font-weight:700; color:var(--text-primary);">${isEdit ? '記録を編集する' : '学習を記録する'}</p>
+    <p style="font-size:12px; color:var(--text-secondary); margin-top:4px;">${isEdit ? '内容を修正できます' : '今日もおつかれさま'}</p>
   </div>`;
 
   h += `<div class="card">
@@ -1771,38 +1783,43 @@ function renderAdd(app) {
     <div style="margin-bottom:14px;">
       <label>学習タイプ</label>
       <select id="add-type" onchange="toggleAddFields();">
-        ${STUDY_TYPES.map(t => `<option value="${t.id}">${t.icon} ${t.name}</option>`).join('')}
+        ${STUDY_TYPES.map(t => `<option value="${t.id}" ${t.id === preType ? 'selected' : ''}>${t.icon} ${t.name}</option>`).join('')}
       </select>
     </div>
-    <div id="fields-mondai">
+    <div id="fields-mondai" style="${preIsMondai ? '' : 'display:none;'}">
       <div style="display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:14px;">
         <div>
           <label>正答数</label>
-          <input id="add-correct" type="number" min="0" value="0" inputmode="numeric">
+          <input id="add-correct" type="number" min="0" value="${isEdit && existing.correct !== undefined ? existing.correct : 0}" inputmode="numeric">
         </div>
         <div>
           <label>問題数</label>
-          <input id="add-total" type="number" min="1" value="10" inputmode="numeric">
+          <input id="add-total" type="number" min="1" value="${isEdit && existing.total !== undefined ? existing.total : 10}" inputmode="numeric">
         </div>
       </div>
     </div>
     <div style="margin-bottom:14px;">
-      <label id="add-minutes-label">学習時間（分・任意）</label>
-      <input id="add-minutes" type="number" min="1" placeholder="例: 30" inputmode="numeric">
+      <label id="add-minutes-label">学習時間（分${preIsMondai ? '・任意' : ''}）</label>
+      <input id="add-minutes" type="number" min="1" value="${isEdit && existing.minutes ? existing.minutes : ''}" placeholder="${preIsMondai ? '例: 30' : ''}" inputmode="numeric">
     </div>
     <div style="margin-bottom:14px;">
       <label>日付</label>
-      <input id="add-date" type="date" value="${new Date().toISOString().split('T')[0]}">
+      <input id="add-date" type="date" value="${isEdit ? existing.date : new Date().toISOString().split('T')[0]}">
     </div>
     <div style="margin-bottom:6px;">
       <label>苦手メモ（任意）</label>
-      <textarea id="add-memo" rows="2" placeholder="間違えたポイント、覚えにくい箇所など" style="resize:vertical;"></textarea>
+      <textarea id="add-memo" rows="2" placeholder="間違えたポイント、覚えにくい箇所など" style="resize:vertical;">${isEdit && existing.memo ? existing.memo : ''}</textarea>
     </div>
   </div>`;
 
   h += `<div style="text-align:center; margin-top:16px;">
-    <button class="btn-primary" onclick="doAdd();">記録する</button>
+    <button class="btn-primary" onclick="doAdd();">${isEdit ? '更新する' : '記録する'}</button>
   </div>`;
+  if (isEdit) {
+    h += `<div style="text-align:center; margin-top:10px;">
+      <button onclick="doDeleteFromEdit();" style="background:none; border:none; color:var(--red-400); font-size:12px; font-family:var(--font); cursor:pointer; padding:6px 12px;">この記録を削除する</button>
+    </div>`;
+  }
   h += `</div>`;
   app.innerHTML = h;
 }
@@ -1829,7 +1846,8 @@ function doAdd() {
 
   const minutesVal = document.getElementById('add-minutes').value;
   const minutes = minutesVal ? parseInt(minutesVal) : 0;
-  const record = { date, memo, id: Date.now(), type: studyType };
+  const isEdit = !!editingRecord;
+  const record = { date, memo, id: isEdit ? editingRecord.recordId : Date.now(), type: studyType };
 
   if (isMondai) {
     const correct = parseInt(document.getElementById('add-correct').value) || 0;
@@ -1844,11 +1862,25 @@ function doAdd() {
     record.minutes = minutes;
   }
 
-  state.subjects[subject].records.push(record);
-  state.subjects[subject].records.sort((a, b) => a.date.localeCompare(b.date));
-  saveState();
-  selectedSubject = null;
-  currentView = 'home';
+  if (isEdit) {
+    // Remove from old subject
+    const oldSid = editingRecord.subjectId;
+    state.subjects[oldSid].records = state.subjects[oldSid].records.filter(r => r.id !== editingRecord.recordId);
+    // Add to (possibly new) subject
+    state.subjects[subject].records.push(record);
+    state.subjects[subject].records.sort((a, b) => a.date.localeCompare(b.date));
+    saveState();
+    const movedSubject = oldSid !== subject;
+    editingRecord = null;
+    selectedSubject = movedSubject ? subject : oldSid;
+    currentView = 'detail';
+  } else {
+    state.subjects[subject].records.push(record);
+    state.subjects[subject].records.sort((a, b) => a.date.localeCompare(b.date));
+    saveState();
+    selectedSubject = null;
+    currentView = 'home';
+  }
   render();
 }
 
@@ -1942,14 +1974,14 @@ function renderDetail(app) {
       } else {
         detailHtml = `<span style="font-size:13px; font-weight:500; color:var(--purple-600);">${r.minutes}分</span>`;
       }
-      h += `<div class="record-item">
+      h += `<div class="record-item" style="cursor:pointer;" onclick="editingRecord={subjectId:'${sid}', recordId:${r.id}}; currentView='add'; render();">
         <div style="min-width:0;">
           <span style="font-size:13px; color:var(--text-secondary);">${typeLabel} ${r.date}</span>
           ${r.memo ? `<div style="font-size:11px; color:var(--text-hint); margin-top:2px; overflow:hidden; text-overflow:ellipsis; white-space:nowrap;">${r.memo}</div>` : ''}
         </div>
         <div style="display:flex; align-items:center; gap:8px; flex-shrink:0;">
           ${detailHtml}
-          <button class="delete-btn" onclick="deleteRecord('${sid}', ${r.id}); event.stopPropagation();">×</button>
+          <span style="font-size:11px; color:var(--text-hint);">編集 ›</span>
         </div>
       </div>`;
     });
@@ -2000,6 +2032,19 @@ function deleteRecord(sid, rid) {
   if (!confirm('この記録を削除しますか？')) return;
   state.subjects[sid].records = state.subjects[sid].records.filter(r => r.id !== rid);
   saveState();
+  render();
+}
+
+function doDeleteFromEdit() {
+  if (!editingRecord) return;
+  if (!confirm('この記録を削除しますか？')) return;
+  const sid = editingRecord.subjectId;
+  const rid = editingRecord.recordId;
+  state.subjects[sid].records = state.subjects[sid].records.filter(r => r.id !== rid);
+  saveState();
+  editingRecord = null;
+  selectedSubject = sid;
+  currentView = 'detail';
   render();
 }
 
