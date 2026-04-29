@@ -534,6 +534,11 @@ function loadState() {
         if (!data.subjects[s.id]) data.subjects[s.id] = { records: [] };
       });
       if (!data.motivation) data.motivation = [];
+      SUBJECTS.forEach(s => {
+        (data.subjects[s.id]?.records || []).forEach(r => {
+          if (r.bulkImport === undefined && r.memo === '過去分まとめ入力') r.bulkImport = true;
+        });
+      });
       return data;
     }
   } catch(e) {}
@@ -606,6 +611,7 @@ function getMinutesByPeriod(period) {
   SUBJECTS.forEach(s => {
     (state.subjects[s.id]?.records || []).forEach(r => {
       if (!r.minutes) return;
+      if (period !== 3 && r.bulkImport) return;
       if (period === 0 && r.date === today) total += r.minutes;
       else if (period === 1 && r.date >= weekStr) total += r.minutes;
       else if (period === 2 && r.date.startsWith(monthStr)) total += r.minutes;
@@ -1051,7 +1057,7 @@ function doImport() {
     const mins = parseInt(document.getElementById('import-m-' + s.id).value) || 0;
     const val = hours * 60 + mins;
     if (val > 0) {
-      const record = { date, memo: '過去分まとめ入力', id: Date.now() + count, type: studyType, minutes: val };
+      const record = { date, memo: '過去分まとめ入力', id: Date.now() + count, type: studyType, minutes: val, bulkImport: true };
       state.subjects[s.id].records.push(record);
       state.subjects[s.id].records.sort((a, b) => a.date.localeCompare(b.date));
       count++;
